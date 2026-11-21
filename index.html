@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="GW Test">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#193A59">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.json">
+<title>GersWorks Sign-in Test</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --text: #1c2733; --muted: #64748b; --line: #dbe3ec;
+    --navy: #193A59; --teal: #287C91; --ok: #1d7a4f; --bad: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #0f1720; --card: #17222e; --text: #e6edf3; --muted: #94a3b8; --line: #2a3a4b; --navy: #8fb3d6; --teal: #5fb3c6; --ok: #5cc597; --bad: #f2867c; }
+  }
+  :root[data-theme="dark"] { --bg: #0f1720; --card: #17222e; --text: #e6edf3; --muted: #94a3b8; --line: #2a3a4b; --navy: #8fb3d6; --teal: #5fb3c6; --ok: #5cc597; --bad: #f2867c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 16px 40px; }
+  h1 { font-size: 21px; color: var(--navy); margin: 8px 0 6px; }
+  p { margin: 0 0 14px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 14px 0; }
+  .mode { font-size: 14px; }
+  .mode b { color: var(--teal); }
+  button { display: block; width: 100%; font: inherit; font-weight: 600; padding: 13px 14px; margin: 10px 0 0; border-radius: 10px; border: 1px solid var(--navy); background: var(--navy); color: #fff; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--navy); }
+  button[disabled] { opacity: .5; }
+  input { width: 100%; font: inherit; font-size: 14px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  ol { padding-left: 0; list-style: none; margin: 0; }
+  li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; font-size: 15px; }
+  li:last-child { border-bottom: 0; }
+  li .i { flex: 0 0 20px; font-weight: 700; }
+  li.ok .i { color: var(--ok); } li.bad .i { color: var(--bad); } li.wait .i { color: var(--muted); }
+  .result { font-weight: 700; margin-top: 12px; }
+  .result.ok { color: var(--ok); } .result.bad { color: var(--bad); }
+  .link { background: none; border: 0; color: var(--teal); padding: 0; width: auto; display: inline; font-size: 14px; font-weight: 500; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>GersWorks Tracker · Google sign-in test</h1>
+  <p class="muted">This page only checks that a phone app can sign in with your Google account and save a small test file on your Google Drive. It can only see files it creates itself, not the rest of your Drive. Nothing from your tracker is used.</p>
+
+  <div class="card" id="setup" hidden>
+    <p><b>Google client ID</b><br><span class="muted">From your Google developer project (ends in .apps.googleusercontent.com).</span></p>
+    <input id="clientInput" autocomplete="off" spellcheck="false" placeholder="1234…apps.googleusercontent.com">
+    <button id="saveClient">Save</button>
+  </div>
+
+  <div class="card">
+    <div class="mode">Opened <b id="mode"></b></div>
+    <button id="popup">Sign in with Google (pop-up)</button>
+    <button id="redirect" class="secondary">Sign in with Google (same window)</button>
+    <p class="muted" style="margin:10px 0 0">Try the pop-up first. If nothing happens, try "same window".</p>
+  </div>
+
+  <div class="card" id="out" hidden>
+    <ol id="steps"></ol>
+    <div class="result" id="result"></div>
+    <button id="cleanup" class="secondary" hidden>Delete the test file from my Drive</button>
+  </div>
+
+  <p class="muted">Client ID: <span id="cidShort"></span> · <button class="link" id="changeClient">change</button></p>
+</main>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+const CLIENT_ID_DEFAULT = '';
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const FILE_NAME = 'GersWorks Tracker - sign-in test.json';
+const HERE = location.origin + location.pathname;
+const $ = id => document.getElementById(id);
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+let clientId = new URLSearchParams(location.search).get('client') || store.get('gw-client') || CLIENT_ID_DEFAULT;
+if (clientId) store.set('gw-client', clientId);
+const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const how = standalone ? 'from the Home Screen (app mode)' : 'in the browser';
+$('mode').textContent = how;
+
+function showClient() {
+  $('cidShort').textContent = clientId ? clientId.slice(0, 12) + '…' : 'not set';
+  $('setup').hidden = !!clientId;
+  $('popup').disabled = $('redirect').disabled = !clientId;
+}
+showClient();
+$('saveClient').onclick = () => { clientId = $('clientInput').value.trim(); if (clientId) store.set('gw-client', clientId); showClient(); };
+$('changeClient').onclick = () => { $('setup').hidden = false; $('clientInput').value = clientId || ''; };
+
+let fileId = null;
+function step(text, state) {
+  $('out').hidden = false;
+  const li = document.createElement('li');
+  li.className = state;
+  li.innerHTML = `<span class="i">${state === 'ok' ? '✓' : state === 'bad' ? '✗' : '…'}</span><span></span>`;
+  li.lastChild.textContent = text;
+  $('steps').appendChild(li);
+  return li;
+}
+function result(text, ok) { const r = $('result'); r.textContent = text; r.className = 'result ' + (ok ? 'ok' : 'bad'); }
+function reset() { $('steps').innerHTML = ''; $('result').textContent = ''; $('cleanup').hidden = true; }
+
+async function api(token, url, opts = {}) {
+  const res = await fetch(url, { ...opts, headers: { Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
+  if (!res.ok) {
+    let msg = res.status + ' ' + res.statusText;
+    try { const j = await res.json(); if (j.error && j.error.message) msg += ': ' + j.error.message; } catch {}
+    throw new Error(msg);
+  }
+  return res.status === 204 ? null : (res.headers.get('content-type') || '').includes('json') ? res.json() : res.text();
+}
+
+async function run(token, method) {
+  step(`Signed in with Google (${method}, ${how})`, 'ok');
+  try {
+    const about = await api(token, 'https://www.googleapis.com/drive/v3/about?fields=user(displayName)');
+    step('Connected to the Google Drive of ' + ((about.user && about.user.displayName) || 'your account'), 'ok');
+
+    const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
+    const found = await api(token, `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,modifiedTime)`);
+    const existing = found.files && found.files[0];
+    const device = /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : 'computer';
+
+    let saves = 1;
+    if (existing) {
+      fileId = existing.id;
+      const before = await api(token, `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+      saves = ((before && before.saves) || 0) + 1;
+    }
+    const body = JSON.stringify({ test: true, app: 'GersWorks Tracker', saves, lastSavedFrom: device + ', ' + how, lastSavedAt: new Date().toISOString() });
+
+    if (!fileId) {
+      const boundary = 'gw' + Math.random().toString(36).slice(2);
+      const multipart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: FILE_NAME, mimeType: 'application/json' })}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+      const created = await api(token, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body: multipart });
+      fileId = created.id;
+      step('Created a test file on your Google Drive', 'ok');
+    } else {
+      await api(token, `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
+      step('Saved the test file again (an update, like editing a to-do)', 'ok');
+    }
+
+    const back = await api(token, `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+    if (!back || back.saves !== saves) throw new Error('read back a different version than was saved');
+    step(`Read it back correctly (saved ${saves} time${saves === 1 ? '' : 's'} so far)`, 'ok');
+
+    result(`Test passed ${how}. Tell Claude: "passed – ${standalone ? 'home screen' : 'browser'}, ${method}".`, true);
+    $('cleanup').hidden = false;
+    $('cleanup').onclick = async () => {
+      try { await api(token, `https://www.googleapis.com/drive/v3/files/${fileId}`, { method: 'DELETE' }); step('Deleted the test file', 'ok'); $('cleanup').hidden = true; fileId = null; }
+      catch (e) { step('Could not delete: ' + e.message, 'bad'); }
+    };
+  } catch (e) {
+    step('Google Drive step failed: ' + e.message, 'bad');
+    result('Test failed. Send Claude a screenshot of this page.', false);
+  }
+}
+
+// Sign-in 1: Google's pop-up
+$('popup').onclick = () => {
+  reset();
+  if (!(window.google && google.accounts && google.accounts.oauth2)) { step('Google sign-in script did not load (check signal) – try again', 'bad'); return; }
+  const wait = step('Waiting for the Google pop-up…', 'wait');
+  google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: SCOPE,
+    callback: r => { wait.remove(); if (r.error) { step('Sign-in refused: ' + r.error + (r.error_description ? ' – ' + r.error_description : ''), 'bad'); result('Test failed. Send Claude a screenshot of this page.', false); } else run(r.access_token, 'pop-up'); },
+    error_callback: e => { wait.remove(); step('Pop-up sign-in did not complete: ' + (e && e.type || 'unknown') + '. Try "same window".', 'bad'); },
+  }).requestAccessToken();
+};
+
+// Sign-in 2: go to Google in the same window and come back
+$('redirect').onclick = () => {
+  const state = Math.random().toString(36).slice(2);
+  store.set('gw-state', state);
+  const p = new URLSearchParams({ client_id: clientId, redirect_uri: HERE, response_type: 'token', scope: SCOPE, include_granted_scopes: 'true', state, prompt: 'select_account' });
+  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + p;
+};
+
+// Coming back from the same-window sign-in
+if (location.hash.length > 1) {
+  const h = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, '', HERE);
+  if (h.get('error')) { step('Sign-in refused: ' + h.get('error'), 'bad'); result('Test failed. Send Claude a screenshot of this page.', false); }
+  else if (h.get('access_token')) {
+    if (h.get('state') && h.get('state') !== store.get('gw-state')) step('Sign-in reply did not match this page – please try again', 'bad');
+    else run(h.get('access_token'), 'same window');
+  }
+}
+</script>
+</body>
+</html>

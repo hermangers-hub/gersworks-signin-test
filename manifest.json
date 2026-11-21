@@ -1,0 +1,9 @@
+{
+  "name": "GersWorks sign-in test",
+  "short_name": "GW Test",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#193A59"
+}
